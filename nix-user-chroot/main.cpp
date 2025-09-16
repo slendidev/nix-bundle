@@ -5,57 +5,67 @@
  * Usage: nix-user-chroot <nixpath> <command>
  */
 
-#include <sched.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <sys/wait.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <string.h>
-#include <limits.h>
-#include <errno.h>
-#include <sys/mount.h>
-#include <sys/types.h>
 #include <dirent.h>
-#include <sys/stat.h>
-#include <stdint.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <list>
+#include <sched.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <string>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using namespace std;
 
-#define err_exit(format, ...) { fprintf(stderr, format ": %s\n", ##__VA_ARGS__, strerror(errno)); exit(EXIT_FAILURE); }
-static int child_proc(const char *rootdir, const char *nixdir, uint8_t clear_env, list<struct DirMapping> dirMappings, list<struct SetEnv> envMappings, const char *executable, char * const new_argv[]);
+#define err_exit(format, ...)                                                  \
+  {                                                                            \
+    fprintf(stderr, format ": %s\n", ##__VA_ARGS__, strerror(errno));          \
+    exit(EXIT_FAILURE);                                                        \
+  }
+static int child_proc(const char *rootdir, const char *nixdir,
+                      uint8_t clear_env, list<struct DirMapping> dirMappings,
+                      list<struct SetEnv> envMappings, const char *executable,
+                      char *const new_argv[]);
 
 volatile uint8_t child_died = 0;
 int child_pid = 0;
 
 static void usage(const char *pname) {
-    fprintf(stderr, "Usage: %s -n <nixpath> -- <command>\n", pname);
-    fprintf(stderr, "\t-c\tclear all env vars\n");
-    fprintf(stderr, "\t-m <src>:<src>\tmap src on the host to dest in the sandbox\n");
-    fprintf(stderr, "\t-d\tdelete all default dir mappings, may break things\n");
-    fprintf(stderr, "\t-p <var>\tpreserve the value of a variable across the -c clear\n");
-    fprintf(stderr, "\t-e\tadd an /escape-hatch to the sandbox, and run (outside the sandbox) any strings written to it\n");
+  fprintf(stderr, "Usage: %s -n <nixpath> -- <command>\n", pname);
+  fprintf(stderr, "\t-c\tclear all env vars\n");
+  fprintf(stderr,
+          "\t-m <src>:<src>\tmap src on the host to dest in the sandbox\n");
+  fprintf(stderr, "\t-d\tdelete all default dir mappings, may break things\n");
+  fprintf(stderr,
+          "\t-p <var>\tpreserve the value of a variable across the -c clear\n");
+  fprintf(stderr, "\t-e\tadd an /escape-hatch to the sandbox, and run (outside "
+                  "the sandbox) any strings written to it\n");
 
-    exit(EXIT_FAILURE);
+  exit(EXIT_FAILURE);
 }
 
 static void update_map(const char *mapping, const char *map_file) {
-    int fd;
+  int fd;
 
-    fd = open(map_file, O_WRONLY);
-    if (fd < 0) {
-        err_exit("map open");
-    }
+  fd = open(map_file, O_WRONLY);
+  if (fd < 0) {
+    err_exit("map open");
+  }
 
-    int map_len = strlen(mapping);
-    if (write(fd, mapping, map_len) != map_len) {
-        err_exit("map write");
-    }
+  int map_len = strlen(mapping);
+  if (write(fd, mapping, map_len) != map_len) {
+    err_exit("map write");
+  }
 
-    close(fd);
+  close(fd);
 }
 
 static void add_path(string src, string dest, string rootdir) {
@@ -71,8 +81,10 @@ static void add_path(string src, string dest, string rootdir) {
 
   if (S_ISDIR(statbuf.st_mode)) {
     mkdir(path_buf2.c_str(), statbuf.st_mode & ~S_IFMT);
-    if (mount(src.c_str(), path_buf2.c_str(), "none", MS_BIND | MS_REC, NULL) < 0) {
-      fprintf(stderr, "Cannot bind mount %s to %s: %s\n", src.c_str(), path_buf2.c_str(), strerror(errno));
+    if (mount(src.c_str(), path_buf2.c_str(), "none", MS_BIND | MS_REC, NULL) <
+        0) {
+      fprintf(stderr, "Cannot bind mount %s to %s: %s\n", src.c_str(),
+              path_buf2.c_str(), strerror(errno));
     }
   } else if (S_ISREG(statbuf.st_mode)) {
     printf("bind-mounting file %s not supported", src.c_str());
@@ -93,11 +105,11 @@ struct DirMapping parseMapping(string input) {
   auto pos = input.find(":");
   string src = input.substr(0, pos);
   string dest = input.substr(pos + 1);
-  return (struct DirMapping){ src, dest };
+  return (struct DirMapping){src, dest};
 }
 
 static void handle_child_death(int signo, siginfo_t *info, void *context) {
-  if ( (child_pid == 0) || (info->si_pid == child_pid) ) {
+  if ((child_pid == 0) || (info->si_pid == child_pid)) {
     child_died = 1;
   }
 }
@@ -110,7 +122,7 @@ int main(int argc, char *argv[]) {
   list<struct SetEnv> envMappings;
   const char *t;
 
-#define x(y) dirMappings.push_back({ "/" y, y })
+#define x(y) dirMappings.push_back({"/" y, y})
   x("dev");
   x("proc");
   x("sys");
@@ -148,7 +160,7 @@ int main(int argc, char *argv[]) {
     case 'p':
       t = getenv(optarg);
       if (t) {
-        envMappings.push_back({ optarg, t });
+        envMappings.push_back({optarg, t});
       }
       break;
     }
@@ -204,7 +216,10 @@ int main(int argc, char *argv[]) {
     char buf[10];
     read(unrace[0], buf, 10);
     close(unrace[0]);
-    return child_proc(rootdir, nixdir, clear_env, dirMappings, envMappings, argv[optind], argv + optind);
+    std::string bin{argv[optind]};
+    bin = "/" + bin;
+    return child_proc(rootdir, nixdir, clear_env, dirMappings, envMappings,
+                      bin.c_str(), argv + optind);
   } else {
     close(unrace[0]);
     char fifopath[PATH_MAX];
@@ -218,7 +233,8 @@ int main(int argc, char *argv[]) {
       while (!child_died) {
         int fd = open(fifopath, O_RDONLY);
         if (fd < 0) {
-          if (errno == EINTR) continue;
+          if (errno == EINTR)
+            continue;
           fprintf(stderr, "error opening escape-hatch: %s\n", strerror(errno));
           continue;
         }
@@ -234,7 +250,10 @@ int main(int argc, char *argv[]) {
   }
 }
 
-static int child_proc(const char *rootdir, const char *nixdir, uint8_t clear_env, list<struct DirMapping> dirMappings, list<struct SetEnv> envMappings, const char *executable, char * const new_argv[]) {
+static int child_proc(const char *rootdir, const char *nixdir,
+                      uint8_t clear_env, list<struct DirMapping> dirMappings,
+                      list<struct SetEnv> envMappings, const char *executable,
+                      char *const new_argv[]) {
   // get uid, gid before going to new namespace
   uid_t uid = getuid();
   gid_t gid = getgid();
@@ -242,7 +261,11 @@ static int child_proc(const char *rootdir, const char *nixdir, uint8_t clear_env
   // "unshare" into new namespace
   if (unshare(CLONE_NEWNS | CLONE_NEWUSER) < 0) {
     if (errno == EPERM) {
-      fputs("Run the following to enable unprivileged namespace use:\nsudo bash -c \"sysctl -w kernel.unprivileged_userns_clone=1 ; echo kernel.unprivileged_userns_clone=1 > /etc/sysctl.d/nix-user-chroot.conf\"\n\n", stderr);
+      fputs("Run the following to enable unprivileged namespace use:\nsudo "
+            "bash -c \"sysctl -w kernel.unprivileged_userns_clone=1 ; echo "
+            "kernel.unprivileged_userns_clone=1 > "
+            "/etc/sysctl.d/nix-user-chroot.conf\"\n\n",
+            stderr);
       exit(EXIT_FAILURE);
     } else {
       err_exit("unshare()");
@@ -251,7 +274,7 @@ static int child_proc(const char *rootdir, const char *nixdir, uint8_t clear_env
 
   // add necessary system stuff to rootdir namespace
   for (list<struct DirMapping>::iterator it = dirMappings.begin();
-      it != dirMappings.end(); ++it) {
+       it != dirMappings.end(); ++it) {
     struct DirMapping m = *it;
     add_path(m.src, m.dest, rootdir);
   }
@@ -290,9 +313,13 @@ static int child_proc(const char *rootdir, const char *nixdir, uint8_t clear_env
     err_exit("chroot(%s)", rootdir);
   }
 
-  chdir("/");
+  const char *pwddir = getenv("BUNDLE_PWD");
+  if (!(pwddir && chdir(pwddir) == 0)) {
+    chdir("/");
+  }
 
-  if (clear_env) clearenv();
+  if (clear_env)
+    clearenv();
   setenv("PATH", ENV_PATH, 1);
 
   for (list<struct SetEnv>::iterator it = envMappings.begin();

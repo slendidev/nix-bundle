@@ -41,6 +41,7 @@ rec {
           --shared \
           -rm! ${archive} \
           -o $out // ${startup}
+        sed -i '1a export BUNDLE_PWD="''${BUNDLE_PWD:-$PWD}"' "$out"
         chmod +x $out
       '';
     };
