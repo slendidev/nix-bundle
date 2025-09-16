@@ -36,7 +36,7 @@
             nix-bundle = import inputs.self { inherit nixpkgs; };
             script = nixpkgs.writeScript "startup" ''
               #!/bin/sh
-              .${nix-bundle.nix-user-chroot}/bin/nix-user-chroot -n ./nix -- ${programPath} "$@"
+              .${nixpkgs.proot}/bin/proot -b ./nix:/nix -R / -w "''${BUNDLE_PWD}" ${programPath} $@
             '';
           in
           nix-bundle.makebootstrap {

@@ -68,7 +68,7 @@ rec {
           --mtime="@$SOURCE_DATE_EPOCH" \
           --format=gnu \
           --sort=name \
-          $storePaths | xz -1 -T $(nproc) > $out
+          $storePaths | xz -9 -T $(nproc) > $out
       '';
     };
 
@@ -105,7 +105,7 @@ rec {
     }:
     writeScript "startup" ''
       #!/bin/sh
-      .${proot}/bin/proot -b ./nix:/nix ${target}${run} $@
+      .${proot}/bin/proot -b ./nix:/nix -R / -w "''${BUNDLE_PWD}" ${target}${run} $@
     '';
 
   nix-bootstrap =
