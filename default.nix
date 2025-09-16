@@ -68,41 +68,20 @@ rec {
           --mtime="@$SOURCE_DATE_EPOCH" \
           --format=gnu \
           --sort=name \
-          $storePaths | bzip2 -z > $out
+          $storePaths | xz -1 -T $(nproc) > $out
       '';
     };
 
-  # TODO: eventually should this go in nixpkgs?
-  nix-user-chroot = lib.makeOverridable pkgs.pkgsStatic.stdenv.mkDerivation {
-    name = "nix-user-chroot-2c52b5f";
-    src = ./nix-user-chroot;
-
-    buildInputs = [
-      stdenv.cc.cc.libgcc or null
-    ];
-
-    makeFlags = [ ];
-
+  proot' = proot.overrideAttrs (_: {
     # hack to use when /nix/store is not available
-    #postFixup = ''
-    #  exe=$out/bin/nix-user-chroot
-    #  patchelf \
-    #    --set-interpreter .$(patchelf --print-interpreter $exe) \
-    #    --set-rpath $(patchelf --print-rpath $exe | sed 's|/nix/store/|./nix/store/|g') \
-    #    $exe
-    #'';
-
-    installPhase = ''
-      runHook preInstall
-
-      mkdir -p $out/bin/
-      cp nix-user-chroot $out/bin/nix-user-chroot
-
-      runHook postInstall
+    postFixup = ''
+      exe=$out/bin/proot
+      patchelf \
+        --set-interpreter .$(patchelf --print-interpreter $exe) \
+        --set-rpath $(patchelf --print-rpath $exe | sed 's|/nix/store/|./nix/store/|g') \
+        $exe
     '';
-
-    meta.platforms = lib.platforms.linux;
-  };
+  });
 
   makebootstrap =
     {
@@ -121,18 +100,12 @@ rec {
     {
       target,
       nixUserChrootFlags,
-      nix-user-chroot',
+      proot,
       run,
-      initScript,
     }:
-    let
-      # Avoid re-adding a store path into the store
-      path = toStorePath target;
-    in
     writeScript "startup" ''
       #!/bin/sh
-      ${initScript}
-      .${nix-user-chroot'}/bin/nix-user-chroot -n ./nix ${nixUserChrootFlags} -- ${path}${run} "$@"
+      .${proot}/bin/proot -b ./nix:/nix ${target}${run} $@
     '';
 
   nix-bootstrap =
@@ -140,18 +113,16 @@ rec {
       target,
       extraTargets ? [ ],
       run,
-      nix-user-chroot' ? nix-user-chroot,
+      proot ? proot',
       nixUserChrootFlags ? "",
-      initScript ? "",
     }:
     let
       script = makeStartup {
         inherit
           target
           nixUserChrootFlags
-          nix-user-chroot'
+          proot
           run
-          initScript
           ;
       };
     in
@@ -182,28 +153,19 @@ rec {
   # special case adding path to the environment before launch
   nix-bootstrap-path =
     let
-      nix-user-chroot'' =
+      proot'' =
         targets:
-        nix-user-chroot.overrideDerivation (o: {
-          buildInputs = o.buildInputs ++ targets;
-          makeFlags = o.makeFlags ++ [
-            ''ENV_PATH="${lib.makeBinPath targets}"''
-          ];
+        proot'.overrideDerivation (o: {
+          # TODO: not sure yet what we need to do here
         });
     in
     {
       target,
       extraTargets ? [ ],
       run,
-      initScript ? "",
     }:
     nix-bootstrap {
-      inherit
-        target
-        extraTargets
-        run
-        initScript
-        ;
-      nix-user-chroot' = nix-user-chroot'' extraTargets;
+      inherit target extraTargets run;
+      proot = proot'' extraTargets;
     };
 }
